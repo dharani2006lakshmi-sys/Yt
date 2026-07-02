@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
-# Install system dependencies
-apt-get update && apt-get install -y ffmpeg python3-pip
+echo "=== Installing system dependencies ==="
+apt-get update && apt-get install -y ffmpeg
 
-# Install Python dependencies
+echo "=== Installing Python dependencies ==="
 pip install --upgrade pip
 pip install -r requirements.txt
+
+echo "=== Build complete ==="
