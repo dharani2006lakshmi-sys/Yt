@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #fff; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .container { max-width: 800px; width: 100%; padding: 2rem; }
+        h1 { text-align: center; margin-bottom: 2rem; font-size: 2.5rem; background: linear-gradient(135deg, #ff0000, #cc0000); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .input-group { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+        input[type="text"] { flex: 1; padding: 1rem; border: 2px solid #333; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 1rem; outline: none; }
+        input[type="text"]:focus { border-color: #ff0000; }
+        button { padding: 1rem 2rem; background: #ff0000; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        button:hover { background: #cc0000; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .formats-table { display: none; margin-top: 2rem; }
+        .formats-table.active { display: block; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #1a1a1a; color: #aaa; }
+        tr:hover { background: #1a1a1a; }
+        .download-btn { background: #2ea043; padding: 0.4rem 1rem; font-size: 0.85rem; border: none; color: #fff; border-radius: 4px; cursor: pointer; }
+        .download-btn:hover { background: #238636; }
+        .status { text-align: center; padding: 1rem; margin-top: 1rem; border-radius: 8px; display: none; }
+        .status.loading { display: block; background: #1a1a1a; border: 1px solid #333; }
+        .status.error { display: block; background: #2d1b1b; border: 1px solid #ff4444; color: #ff6666; }
+        .video-info { display: none; margin-top: 2rem; gap: 1.5rem; align-items: flex-start; }
+        .video-info.active { display: flex; }
+        .video-info img { max-width: 200px; border-radius: 8px; }
+        .video-info h2 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+        .video-info p { color: #aaa; font-size: 0.9rem; }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem; }
+        .badge.vp9 { background: #1a6d1a; }
+        .badge.av1 { background: #6d1a6d; }
+        .badge.h264 { background: #1a3a6d; }
+        .config-section { margin-bottom: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
+        .config-section label { display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem; }
+        .config-section input { width: 100%; padding: 0.5rem; background: #0f0f0f; border: 1px solid #333; border-radius: 4px; color: #fff; }
+        .footer { text-align: center; margin-top: 2rem; color: #555; font-size: 0.85rem; }
+        .footer a { color: #ff0000; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>▶ YouTube Downloader</h1>
+
+        <div class="config-section">
+            <label>API Backend URL (default: your Render/Railway server)</label>
+            <input type="text" id="api-url" placeholder="https://your-app.onrender.com" />
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="url-input" placeholder="Paste YouTube URL here..." />
+            <button id="fetch-btn" onclick="fetchFormats()">Fetch Formats</button>
+        </div>
+        <div id="status" class="status"></div>
+        <div id="video-info" class="video-info"></div>
+        <div id="formats-table" class="formats-table"></div>
+        <div class="footer">
+            Hosted on <a href="https://github.com">GitHub Pages</a> · Backend powered by yt-dlp
+        </div>
+    </div>
+
+    <script>
+        function getApiUrl() {
+            let url = document.getElementById('api-url').value.trim();
+            if (!url) url = window.location.origin; // fallback for dev
+            return url.replace(/\/+$/, '');
+        }
+
+        async function fetchFormats() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) return showError('Please paste a YouTube URL');
+
+            const btn = document.getElementById('fetch-btn');
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+            showStatus('Fetching available formats...', 'loading');
+
+            try {
+                const resp = await fetch(getApiUrl() + '/api/formats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await resp.json();
+                if (data.error) return showError(data.error);
+                displayFormats(data);
+            } catch (e) {
+                showError('Failed to connect to backend. Check the API URL above.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Fetch Formats';
+            }
+        }
+
+        function displayFormats(data) {
+            const infoDiv = document.getElementById('video-info');
+            infoDiv.innerHTML = `
+                <img src="${data.thumbnail}" alt="thumbnail" />
+                <div>
+                    <h2>${data.title}</h2>
+                    <p>${data.duration} | ${data.uploader}</p>
+                </div>
+            `;
+            infoDiv.classList.add('active');
+
+            const tableDiv = document.getElementById('formats-table');
+            let html = '<table><thead><tr><th>Format</th><th>Resolution</th><th>Codec</th><th>FPS</th><th>Size</th><th>Action</th></tr></thead><tbody>';
+
+            for (const f of data.formats) {
+                if (f.vcodec === 'none') continue;
+                const badgeClass = f.vcodec.includes('vp9') ? 'vp9' : f.vcodec.includes('av1') ? 'av1' : 'h264';
+                html += `<tr>
+                    <td>${f.format_id}</td>
+                    <td>${f.resolution || 'N/A'}</td>
+                    <td>${f.vcodec} <span class="badge ${badgeClass}">${f.vcodec.split('.')[0]}</span></td>
+                    <td>${f.fps || 'N/A'}</td>
+                    <td>${f.filesize_approx || 'N/A'}</td>
+                    <td><button class="download-btn" onclick="downloadVideo('${data.url}', '${f.format_id}')">Download</button></td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            tableDiv.innerHTML = html;
+            tableDiv.classList.add('active');
+            hideStatus();
+        }
+
+        async function downloadVideo(url, formatId) {
+            showStatus('Downloading...', 'loading');
+            try {
+                const resp = await fetch(getApiUrl() + '/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, format_id: formatId })
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    return showError(err.error || 'Download failed');
+                }
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                const cd = resp.headers.get('Content-Disposition');
+                const match = cd && cd.match(/filename="(.+)"/);
+                a.download = match ? match[1] : 'video.mp4';
+                a.click();
+                URL.revokeObjectURL(a.href);
+                hideStatus();
+            } catch (e) {
+                showError('Download failed: ' + e.message);
+            }
+        }
+
+        function showStatus(msg, type) {
+            const div = document.getElementById('status');
+            div.textContent = msg;
+            div.className = `status ${type}`;
+        }
+
+        function showError(msg) {
+            const div = document.getElementById('status');
+            div.textContent = '❌ ' + msg;
+            div.className = 'status error';
+            document.getElementById('fetch-btn').disabled = false;
+            document.getElementById('fetch-btn').textContent = 'Fetch Formats';
+        }
+
+        function hideStatus() {
+            document.getElementById('status').className = 'status';
+        }
+    </script>
+</body>
+</html>
