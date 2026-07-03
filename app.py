@@ -11,6 +11,45 @@ CORS(app)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# Common YouTube OAuth headers that bypass the bot check
+YOUTUBE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'DNT': '1',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'TE': 'trailers',
+}
+
+def get_ydl_opts(extra_opts=None):
+    """Base yt-dlp options designed to avoid bot detection without cookies."""
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': False,
+        'http_headers': YOUTUBE_HEADERS,
+        'extractor_args': {
+            'youtube': {
+                'skip': ['dash', 'hls'],   # Skip DASH/HLS manifest checks that trigger bot detection
+                'player_client': ['android', 'web'],  # Use android client which is less restricted
+                'player_skip': ['webpage', 'configs'],  # Skip webpage parsing that triggers checks
+            }
+        },
+        'extractor_retries': 3,
+        'fragment_retries': 3,
+        'retries': 3,
+        'socket_timeout': 30,
+    }
+    if extra_opts:
+        opts.update(extra_opts)
+    return opts
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -27,14 +66,8 @@ def get_formats():
     if not re.match(yt_regex, url):
         return jsonify({'error': 'Invalid YouTube URL'}), 400
 
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
             info = ydl.extract_info(url, download=False)
 
             formats = []
@@ -65,7 +98,46 @@ def get_formats():
             })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        error_msg = str(e)
+        # Retry with different client if first attempt fails
+        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+            try:
+                retry_opts = get_ydl_opts({
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android', 'android_embedded'],
+                            'player_skip': ['webpage', 'configs', 'js'],
+                        }
+                    }
+                })
+                with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    # ... same format processing as above ...
+                    formats = []
+                    for f in info.get('formats', []):
+                        if f.get('vcodec') == 'none':
+                            continue
+                        filesize = f.get('filesize') or f.get('filesize_approx')
+                        formats.append({
+                            'format_id': f.get('format_id'),
+                            'resolution': f.get('resolution') or f"{f.get('height', '?')}p",
+                            'vcodec': f.get('vcodec', 'unknown'),
+                            'acodec': f.get('acodec', 'unknown'),
+                            'fps': f.get('fps'),
+                            'filesize_approx': format_bytes(filesize) if filesize else 'N/A',
+                            'ext': f.get('ext'),
+                        })
+                    return jsonify({
+                        'title': info.get('title'),
+                        'duration': format_duration(info.get('duration')),
+                        'uploader': info.get('uploader'),
+                        'thumbnail': info.get('thumbnail'),
+                        'url': url,
+                        'formats': formats,
+                    })
+            except:
+                return jsonify({'error': 'YouTube is blocking requests from this server IP. Try again later or use a different hosting region.'}), 500
+        return jsonify({'error': error_msg}), 500
 
 @app.route('/api/download', methods=['POST'])
 def download_video():
@@ -78,20 +150,18 @@ def download_video():
 
     output_template = os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s')
 
-    ydl_opts = {
+    download_opts = get_ydl_opts({
         'format': f'{format_id}+bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
-        'quiet': True,
-        'no_warnings': True,
         'postprocessors': [{
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
-    }
+    })
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(download_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
@@ -117,7 +187,7 @@ def download_video():
 
 def format_bytes(size):
     for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
+        if size < 1023:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
