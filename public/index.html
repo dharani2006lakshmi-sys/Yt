@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -226,6 +226,7 @@
   const API_BASE = 'https://yt-mvab.onrender.com';
 
   let currentVideoId = null;
+  let currentClientType = null;
 
   function showError(msg) {
     errorBox.textContent = msg;
@@ -258,6 +259,7 @@
       if (!data.formats || data.formats.length === 0) throw new Error('No playable formats returned for this video.');
 
       currentVideoId = data.videoId;
+      currentClientType = data.clientType;
       videoTitle.textContent = data.title || 'Untitled';
       videoAuthor.textContent = data.author || '';
 
@@ -294,7 +296,7 @@
 
   function playStream(itag) {
     if (!currentVideoId) return;
-    videoEl.src = `${API_BASE}/api/stream?videoId=${encodeURIComponent(currentVideoId)}&itag=${itag}`;
+    videoEl.src = `${API_BASE}/api/stream?videoId=${encodeURIComponent(currentVideoId)}&itag=${itag}&clientType=${encodeURIComponent(currentClientType || '')}`;
     videoEl.play().catch(() => {});
   }
 
