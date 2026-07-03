@@ -28,6 +28,8 @@ def build_opts(for_download=False):
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
+                'skip': ['webpage', 'configs'],
+                'innertube_key': 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
             }
         },
         'extract_flat': False,
@@ -91,7 +93,10 @@ def get_formats():
         })
 
     except DownloadError as e:
-        return jsonify({'error': f"YouTube is blocking this request: {str(e)}"}), 500
+        error_msg = str(e)
+        if "Sign in to confirm" in error_msg:
+            return jsonify({'error': 'YouTube is blocking this server IP. Try again later or use a different hosting region.'}), 500
+        return jsonify({'error': error_msg}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
