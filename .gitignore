@@ -1,9 +1,0 @@
-__pycache__/
-*.pyc
-.env
-downloads/
-*.mp4
-*.webm
-*.mkv
-.DS_Store
-venv/
