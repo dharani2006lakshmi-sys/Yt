@@ -1,176 +1,301 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Downloader</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #fff; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .container { max-width: 800px; width: 100%; padding: 2rem; }
-        h1 { text-align: center; margin-bottom: 2rem; font-size: 2.5rem; background: linear-gradient(135deg, #ff0000, #cc0000); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .input-group { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
-        input[type="text"] { flex: 1; padding: 1rem; border: 2px solid #333; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 1rem; outline: none; }
-        input[type="text"]:focus { border-color: #ff0000; }
-        button { padding: 1rem 2rem; background: #ff0000; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
-        button:hover { background: #cc0000; }
-        button:disabled { background: #555; cursor: not-allowed; }
-        .formats-table { display: none; margin-top: 2rem; }
-        .formats-table.active { display: block; }
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #333; }
-        th { background: #1a1a1a; color: #aaa; }
-        tr:hover { background: #1a1a1a; }
-        .download-btn { background: #2ea043; padding: 0.4rem 1rem; font-size: 0.85rem; border: none; color: #fff; border-radius: 4px; cursor: pointer; }
-        .download-btn:hover { background: #238636; }
-        .status { text-align: center; padding: 1rem; margin-top: 1rem; border-radius: 8px; display: none; }
-        .status.loading { display: block; background: #1a1a1a; border: 1px solid #333; }
-        .status.error { display: block; background: #2d1b1b; border: 1px solid #ff4444; color: #ff6666; }
-        .video-info { display: none; margin-top: 2rem; gap: 1.5rem; align-items: flex-start; }
-        .video-info.active { display: flex; }
-        .video-info img { max-width: 200px; border-radius: 8px; }
-        .video-info h2 { font-size: 1.2rem; margin-bottom: 0.5rem; }
-        .video-info p { color: #aaa; font-size: 0.9rem; }
-        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-left: 0.5rem; }
-        .badge.vp9 { background: #1a6d1a; }
-        .badge.av1 { background: #6d1a6d; }
-        .badge.h264 { background: #1a3a6d; }
-        .config-section { margin-bottom: 1rem; padding: 1rem; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
-        .config-section label { display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem; }
-        .config-section input { width: 100%; padding: 0.5rem; background: #0f0f0f; border: 1px solid #333; border-radius: 4px; color: #fff; }
-        .footer { text-align: center; margin-top: 2rem; color: #555; font-size: 0.85rem; }
-        .footer a { color: #ff0000; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MVAB Player</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+  body {
+    min-height: 100vh;
+    background: radial-gradient(circle at 20% 20%, #2b1055 0%, #0a0a1a 45%, #05050c 100%);
+    background-attachment: fixed;
+    color: #f0f0f5;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: -20%; left: -20%;
+    width: 60vw; height: 60vw;
+    background: radial-gradient(circle, rgba(120,80,255,0.25), transparent 70%);
+    filter: blur(60px);
+    z-index: -1;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -20%; right: -20%;
+    width: 60vw; height: 60vw;
+    background: radial-gradient(circle, rgba(255,60,140,0.2), transparent 70%);
+    filter: blur(60px);
+    z-index: -1;
+  }
+
+  .container { width: 100%; max-width: 720px; }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  header.glass {
+    padding: 20px 26px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  header h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #b18aff, #ff8ac2);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: rgba(120, 80, 255, 0.25);
+    border: 1px solid rgba(177, 138, 255, 0.4);
+    color: #d6c6ff;
+  }
+
+  .search-bar.glass {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    margin-bottom: 24px;
+  }
+
+  .search-bar input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-size: 0.95rem;
+    padding: 12px 14px;
+  }
+  .search-bar input::placeholder { color: rgba(255,255,255,0.4); }
+
+  .btn {
+    border: none;
+    border-radius: 14px;
+    padding: 12px 22px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    background: linear-gradient(135deg, #8a5cff, #ff5ca8);
+    color: #fff;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .status {
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.85rem;
+    padding: 20px;
+    display: none;
+  }
+  .status.show { display: block; }
+
+  .player-card.glass {
+    padding: 18px;
+    margin-bottom: 20px;
+    display: none;
+  }
+  .player-card.show { display: block; }
+
+  .thumb-wrap {
+    position: relative;
+    width: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    background: #000;
+  }
+
+  video {
+    width: 100%;
+    display: block;
+    border-radius: 14px;
+    background: #000;
+    max-height: 400px;
+  }
+
+  .meta { padding: 4px 6px 14px; }
+  .meta h2 { font-size: 1.05rem; margin-bottom: 4px; }
+  .meta p { font-size: 0.8rem; color: rgba(255,255,255,0.55); }
+
+  .quality-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 4px 6px;
+  }
+
+  .quality-pill {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #e6e0ff;
+    padding: 8px 14px;
+    border-radius: 30px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .quality-pill:hover { background: rgba(177,138,255,0.2); }
+  .quality-pill.active {
+    background: linear-gradient(135deg, #8a5cff, #ff5ca8);
+    border-color: transparent;
+    color: #fff;
+  }
+
+  .error-box {
+    display: none;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: rgba(255, 70, 90, 0.12);
+    border: 1px solid rgba(255, 70, 90, 0.35);
+    color: #ffb3bd;
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+  }
+  .error-box.show { display: block; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>▶ YouTube Downloader</h1>
+  <div class="container">
+    <header class="glass">
+      <h1>MVAB Player</h1>
+      <span class="badge">Innertube</span>
+    </header>
 
-        <div class="config-section">
-            <label>API Backend URL (default: your Render/Railway server)</label>
-            <input type="text" id="api-url" placeholder="https://your-app.onrender.com" />
-        </div>
-
-        <div class="input-group">
-            <input type="text" id="url-input" placeholder="Paste YouTube URL here..." />
-            <button id="fetch-btn" onclick="fetchFormats()">Fetch Formats</button>
-        </div>
-        <div id="status" class="status"></div>
-        <div id="video-info" class="video-info"></div>
-        <div id="formats-table" class="formats-table"></div>
-        <div class="footer">
-            Hosted on <a href="https://github.com">GitHub Pages</a> · Backend powered by yt-dlp
-        </div>
+    <div class="search-bar glass">
+      <input id="urlInput" type="text" placeholder="Paste YouTube URL or video ID...">
+      <button class="btn" id="loadBtn">Load</button>
     </div>
 
-    <script>
-        function getApiUrl() {
-            let url = document.getElementById('api-url').value.trim();
-            if (!url) url = window.location.origin; // fallback for dev
-            return url.replace(/\/+$/, '');
-        }
+    <div class="error-box" id="errorBox"></div>
+    <div class="status" id="statusText">Fetching video info...</div>
 
-        async function fetchFormats() {
-            const url = document.getElementById('url-input').value.trim();
-            if (!url) return showError('Please paste a YouTube URL');
+    <div class="player-card glass" id="playerCard">
+      <div class="thumb-wrap">
+        <video id="videoEl" controls playsinline></video>
+      </div>
+      <div class="meta">
+        <h2 id="videoTitle">—</h2>
+        <p id="videoAuthor">—</p>
+      </div>
+      <div class="quality-row" id="qualityRow"></div>
+    </div>
+  </div>
 
-            const btn = document.getElementById('fetch-btn');
-            btn.disabled = true;
-            btn.textContent = 'Loading...';
-            showStatus('Fetching available formats...', 'loading');
+<script>
+  const urlInput = document.getElementById('urlInput');
+  const loadBtn = document.getElementById('loadBtn');
+  const statusText = document.getElementById('statusText');
+  const errorBox = document.getElementById('errorBox');
+  const playerCard = document.getElementById('playerCard');
+  const videoEl = document.getElementById('videoEl');
+  const videoTitle = document.getElementById('videoTitle');
+  const videoAuthor = document.getElementById('videoAuthor');
+  const qualityRow = document.getElementById('qualityRow');
 
-            try {
-                const resp = await fetch(getApiUrl() + '/api/formats', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
-                });
-                const data = await resp.json();
-                if (data.error) return showError(data.error);
-                displayFormats(data);
-            } catch (e) {
-                showError('Failed to connect to backend. Check the API URL above.');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Fetch Formats';
-            }
-        }
+  let currentVideoId = null;
 
-        function displayFormats(data) {
-            const infoDiv = document.getElementById('video-info');
-            infoDiv.innerHTML = `
-                <img src="${data.thumbnail}" alt="thumbnail" />
-                <div>
-                    <h2>${data.title}</h2>
-                    <p>${data.duration} | ${data.uploader}</p>
-                </div>
-            `;
-            infoDiv.classList.add('active');
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.classList.add('show');
+  }
+  function hideError() {
+    errorBox.classList.remove('show');
+  }
+  function setLoading(loading) {
+    statusText.classList.toggle('show', loading);
+    loadBtn.disabled = loading;
+  }
 
-            const tableDiv = document.getElementById('formats-table');
-            let html = '<table><thead><tr><th>Format</th><th>Resolution</th><th>Codec</th><th>FPS</th><th>Size</th><th>Action</th></tr></thead><tbody>';
+  async function loadVideo() {
+    const value = urlInput.value.trim();
+    if (!value) return showError('Paste a YouTube URL or video ID first.');
 
-            for (const f of data.formats) {
-                if (f.vcodec === 'none') continue;
-                const badgeClass = f.vcodec.includes('vp9') ? 'vp9' : f.vcodec.includes('av1') ? 'av1' : 'h264';
-                html += `<tr>
-                    <td>${f.format_id}</td>
-                    <td>${f.resolution || 'N/A'}</td>
-                    <td>${f.vcodec} <span class="badge ${badgeClass}">${f.vcodec.split('.')[0]}</span></td>
-                    <td>${f.fps || 'N/A'}</td>
-                    <td>${f.filesize_approx || 'N/A'}</td>
-                    <td><button class="download-btn" onclick="downloadVideo('${data.url}', '${f.format_id}')">Download</button></td>
-                </tr>`;
-            }
-            html += '</tbody></table>';
-            tableDiv.innerHTML = html;
-            tableDiv.classList.add('active');
-            hideStatus();
-        }
+    hideError();
+    playerCard.classList.remove('show');
+    setLoading(true);
 
-        async function downloadVideo(url, formatId) {
-            showStatus('Downloading...', 'loading');
-            try {
-                const resp = await fetch(getApiUrl() + '/api/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, format_id: formatId })
-                });
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    return showError(err.error || 'Download failed');
-                }
-                const blob = await resp.blob();
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                const cd = resp.headers.get('Content-Disposition');
-                const match = cd && cd.match(/filename="(.+)"/);
-                a.download = match ? match[1] : 'video.mp4';
-                a.click();
-                URL.revokeObjectURL(a.href);
-                hideStatus();
-            } catch (e) {
-                showError('Download failed: ' + e.message);
-            }
-        }
+    try {
+      const res = await fetch('/api/formats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load video');
 
-        function showStatus(msg, type) {
-            const div = document.getElementById('status');
-            div.textContent = msg;
-            div.className = `status ${type}`;
-        }
+      currentVideoId = data.videoId;
+      videoTitle.textContent = data.title || 'Untitled';
+      videoAuthor.textContent = data.author || '';
 
-        function showError(msg) {
-            const div = document.getElementById('status');
-            div.textContent = '❌ ' + msg;
-            div.className = 'status error';
-            document.getElementById('fetch-btn').disabled = false;
-            document.getElementById('fetch-btn').textContent = 'Fetch Formats';
-        }
+      // Prefer formats with both audio+video for simple playback
+      const playable = data.formats
+        .filter(f => f.hasAudio && f.hasVideo)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        function hideStatus() {
-            document.getElementById('status').className = 'status';
-        }
-    </script>
+      const list = playable.length ? playable : data.formats;
+
+      qualityRow.innerHTML = '';
+      list.slice(0, 6).forEach((f, i) => {
+        const pill = document.createElement('button');
+        pill.className = 'quality-pill' + (i === 0 ? ' active' : '');
+        pill.textContent = f.quality || `itag ${f.itag}`;
+        pill.onclick = () => selectFormat(f.itag, pill);
+        qualityRow.appendChild(pill);
+      });
+
+      if (list.length) playStream(list[0].itag);
+      playerCard.classList.add('show');
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function selectFormat(itag, pillEl) {
+    document.querySelectorAll('.quality-pill').forEach(p => p.classList.remove('active'));
+    pillEl.classList.add('active');
+    playStream(itag);
+  }
+
+  function playStream(itag) {
+    if (!currentVideoId) return;
+    videoEl.src = `/api/stream?videoId=${encodeURIComponent(currentVideoId)}&itag=${itag}`;
+    videoEl.play().catch(() => {});
+  }
+
+  loadBtn.addEventListener('click', loadVideo);
+  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') loadVideo(); });
+</script>
 </body>
 </html>
