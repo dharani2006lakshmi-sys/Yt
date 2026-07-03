@@ -1,160 +1,130 @@
-from flask import Flask, request, jsonify, send_file, render_template
-from flask_cors import CORS
-import yt_dlp
-from yt_dlp.utils import DownloadError
-import os
-import re
-import glob
+const express = require('express');
+const path = require('path');
+const { Innertube, UniversalCache } = require('youtubei.js');
 
-app = Flask(__name__)
-CORS(app)
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'DNT': '1',
-    'Connection': 'keep-alive',
+// ---- Cached Innertube client (don't recreate per request) ----
+let ytClient = null;
+async function getYT() {
+  if (!ytClient) {
+    ytClient = await Innertube.create({
+      lang: 'en',
+      location: 'IN',
+      cache: new UniversalCache(false), // in-memory cache, safe for Render's ephemeral fs
+      generate_session_locally: true,   // avoids depending on YT server-side session gen
+    });
+  }
+  return ytClient;
 }
 
-def build_opts(for_download=False):
-    opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'http_headers': HEADERS,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web_embedded', 'tv'],
-                'player_skip': ['webpage', 'configs'],
-            }
-        },
-        'extract_flat': False,
-        'socket_timeout': 30,
-        'retries': 3,
-        'fragment_retries': 3,
+function extractVideoId(input) {
+  if (!input) return null;
+  const idPattern = /^[a-zA-Z0-9_-]{11}$/;
+  if (idPattern.test(input)) return input;
+  try {
+    const url = new URL(input);
+    if (url.hostname.includes('youtu.be')) return url.pathname.slice(1);
+    if (url.searchParams.get('v')) return url.searchParams.get('v');
+  } catch (_) {}
+  return null;
+}
+
+// ---- Get available formats/info for a video ----
+app.post('/api/formats', async (req, res) => {
+  try {
+    const videoId = extractVideoId(req.body.videoId || req.body.url);
+    if (!videoId) return res.status(400).json({ error: 'Valid videoId or URL required' });
+
+    const client = await getYT();
+    const info = await client.getInfo(videoId);
+
+    const allFormats = [
+      ...(info.streaming_data?.formats || []),
+      ...(info.streaming_data?.adaptive_formats || []),
+    ];
+
+    const formats = allFormats
+      .filter(f => f.mime_type)
+      .map(f => ({
+        itag: f.itag,
+        quality: f.quality_label || f.quality || 'unknown',
+        mimeType: f.mime_type,
+        hasAudio: f.has_audio,
+        hasVideo: f.has_video,
+        bitrate: f.bitrate,
+        contentLength: f.content_length,
+      }));
+
+    res.json({
+      videoId,
+      title: info.basic_info.title,
+      author: info.basic_info.author,
+      duration: info.basic_info.duration,
+      thumbnail: info.basic_info.thumbnail?.[0]?.url || null,
+      formats,
+    });
+  } catch (err) {
+    console.error('Innertube /api/formats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch formats', detail: err.message });
+  }
+});
+
+// ---- Stream/proxy a specific itag directly to the client ----
+app.get('/api/stream', async (req, res) => {
+  try {
+    const videoId = extractVideoId(req.query.videoId);
+    const itag = parseInt(req.query.itag, 10);
+    if (!videoId || !itag) return res.status(400).json({ error: 'videoId and itag required' });
+
+    const client = await getYT();
+    const info = await client.getInfo(videoId);
+
+    const allFormats = [
+      ...(info.streaming_data?.formats || []),
+      ...(info.streaming_data?.adaptive_formats || []),
+    ];
+    const format = allFormats.find(f => f.itag === itag);
+    if (!format) return res.status(404).json({ error: 'Format not found for this itag' });
+
+    const streamUrl = format.decipher(client.session.player);
+
+    // Support range requests (seeking) by forwarding the Range header upstream
+    const upstreamHeaders = {};
+    if (req.headers.range) upstreamHeaders.range = req.headers.range;
+
+    const upstream = await fetch(streamUrl, { headers: upstreamHeaders });
+
+    res.status(upstream.status);
+    res.setHeader('Content-Type', format.mime_type || 'video/mp4');
+    if (upstream.headers.get('content-length')) {
+      res.setHeader('Content-Length', upstream.headers.get('content-length'));
     }
-    if for_download:
-        opts.update({
-            'format': 'bestvideo+bestaudio/best',
-            'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
-            'merge_output_format': 'mp4',
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-        })
-    return opts
+    if (upstream.headers.get('content-range')) {
+      res.setHeader('Content-Range', upstream.headers.get('content-range'));
+      res.setHeader('Accept-Ranges', 'bytes');
+    }
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    const reader = upstream.body.getReader();
+    req.on('close', () => reader.cancel().catch(() => {}));
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (err) {
+    console.error('Innertube /api/stream error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Streaming failed', detail: err.message });
+  }
+});
 
-@app.route('/api/formats', methods=['POST'])
-def get_formats():
-    data = request.get_json()
-    url = data.get('url', '').strip()
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-    if not url:
-        return jsonify({'error': 'URL is required'}), 400
-
-    if not re.match(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/', url):
-        return jsonify({'error': 'Invalid YouTube URL'}), 400
-
-    try:
-        with yt_dlp.YoutubeDL(build_opts()) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        formats = []
-        for f in info.get('formats', []):
-            if f.get('vcodec') == 'none':
-                continue
-            filesize = f.get('filesize') or f.get('filesize_approx')
-            formats.append({
-                'format_id': f.get('format_id'),
-                'resolution': f.get('resolution') or f"{f.get('height', '?')}p",
-                'vcodec': f.get('vcodec', 'unknown'),
-                'acodec': f.get('acodec', 'unknown'),
-                'fps': f.get('fps'),
-                'filesize_approx': format_bytes(filesize) if filesize else 'N/A',
-                'ext': f.get('ext'),
-            })
-
-        return jsonify({
-            'title': info.get('title'),
-            'duration': format_duration(info.get('duration')),
-            'uploader': info.get('uploader'),
-            'thumbnail': info.get('thumbnail'),
-            'url': url,
-            'formats': formats,
-        })
-
-    except DownloadError as e:
-        error_msg = str(e)
-        if "Sign in to confirm" in error_msg:
-            return jsonify({'error': 'YouTube is blocking this server IP. Try again later or use a different hosting region.'}), 500
-        return jsonify({'error': error_msg}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/download', methods=['POST'])
-def download_video():
-    data = request.get_json()
-    url = data.get('url', '').strip()
-    format_id = data.get('format_id', '').strip()
-
-    if not url or not format_id:
-        return jsonify({'error': 'URL and format_id are required'}), 400
-
-    opts = build_opts(for_download=True)
-    opts['format'] = f'{format_id}+bestaudio[ext=m4a]/bestaudio/best'
-
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-
-            base, _ = os.path.splitext(filename)
-            mp4_file = base + '.mp4'
-            if os.path.exists(mp4_file):
-                filename = mp4_file
-
-            if not os.path.exists(filename):
-                files = glob.glob(os.path.join(DOWNLOAD_DIR, f"*{info.get('id', '')}*"))
-                if files:
-                    filename = files[0]
-
-            if not os.path.exists(filename):
-                return jsonify({'error': 'Downloaded file not found'}), 500
-
-            return send_file(
-                filename,
-                as_attachment=True,
-                download_name=f"{info.get('title', 'video')}.mp4",
-                mimetype='video/mp4'
-            )
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-def format_bytes(size):
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1023:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
-def format_duration(seconds):
-    if not seconds:
-        return 'N/A'
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+app.listen(PORT, () => {
+  console.log(`Server live on port ${PORT}`);
+})
