@@ -24,8 +24,9 @@ async function getYT() {
     ytClient = await Innertube.create({
       lang: 'en',
       location: 'IN',
-      cache: new UniversalCache(false), // in-memory cache, safe for Render's ephemeral fs
-      generate_session_locally: true,   // avoids depending on YT server-side session gen
+      cache: new UniversalCache(false),
+      generate_session_locally: true,
+      client_type: 'ANDROID', // ANDROID client avoids most cloud-IP bot checks that WEB hits
     });
   }
   return ytClient;
@@ -52,10 +53,23 @@ app.post('/api/formats', async (req, res) => {
     const client = await getYT();
     const info = await client.getInfo(videoId);
 
+    console.log('Basic info:', JSON.stringify(info.basic_info, null, 2).slice(0, 500));
+    console.log('Playability status:', info.playability_status?.status, info.playability_status?.reason);
+
     const allFormats = [
       ...(info.streaming_data?.formats || []),
       ...(info.streaming_data?.adaptive_formats || []),
     ];
+
+    console.log('Total formats found:', allFormats.length);
+
+    if (allFormats.length === 0) {
+      return res.status(502).json({
+        error: 'No playable formats returned',
+        playability: info.playability_status?.status || 'unknown',
+        reason: info.playability_status?.reason || 'YouTube may be blocking this server or the video is restricted.',
+      });
+    }
 
     const formats = allFormats
       .filter(f => f.mime_type)
