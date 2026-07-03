@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 import yt_dlp
+from yt_dlp.utils import DownloadError
 import os
 import re
 import glob
@@ -11,43 +12,39 @@ CORS(app)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Common YouTube OAuth headers that bypass the bot check
-YOUTUBE_HEADERS = {
+HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate, br',
     'DNT': '1',
     'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'TE': 'trailers',
 }
 
-def get_ydl_opts(extra_opts=None):
-    """Base yt-dlp options designed to avoid bot detection without cookies."""
+def build_opts(for_download=False):
     opts = {
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
-        'http_headers': YOUTUBE_HEADERS,
+        'http_headers': HEADERS,
         'extractor_args': {
             'youtube': {
-                'skip': ['dash', 'hls'],   # Skip DASH/HLS manifest checks that trigger bot detection
-                'player_client': ['android', 'web'],  # Use android client which is less restricted
-                'player_skip': ['webpage', 'configs'],  # Skip webpage parsing that triggers checks
+                'player_client': ['android', 'web'],
             }
         },
-        'extractor_retries': 3,
-        'fragment_retries': 3,
-        'retries': 3,
+        'extract_flat': False,
         'socket_timeout': 30,
+        'retries': 3,
+        'fragment_retries': 3,
     }
-    if extra_opts:
-        opts.update(extra_opts)
+    if for_download:
+        opts.update({
+            'format': 'bestvideo+bestaudio/best',
+            'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s'),
+            'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+        })
     return opts
 
 @app.route('/')
@@ -62,82 +59,41 @@ def get_formats():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
-    yt_regex = r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/'
-    if not re.match(yt_regex, url):
+    if not re.match(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/', url):
         return jsonify({'error': 'Invalid YouTube URL'}), 400
 
     try:
-        with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
+        with yt_dlp.YoutubeDL(build_opts()) as ydl:
             info = ydl.extract_info(url, download=False)
 
-            formats = []
-            for f in info.get('formats', []):
-                if f.get('vcodec') == 'none':
-                    continue
-
-                filesize = f.get('filesize') or f.get('filesize_approx')
-                filesize_str = format_bytes(filesize) if filesize else 'N/A'
-
-                formats.append({
-                    'format_id': f.get('format_id'),
-                    'resolution': f.get('resolution') or f"{f.get('height', '?')}p",
-                    'vcodec': f.get('vcodec', 'unknown'),
-                    'acodec': f.get('acodec', 'unknown'),
-                    'fps': f.get('fps'),
-                    'filesize_approx': filesize_str,
-                    'ext': f.get('ext'),
-                })
-
-            return jsonify({
-                'title': info.get('title'),
-                'duration': format_duration(info.get('duration')),
-                'uploader': info.get('uploader'),
-                'thumbnail': info.get('thumbnail'),
-                'url': url,
-                'formats': formats,
+        formats = []
+        for f in info.get('formats', []):
+            if f.get('vcodec') == 'none':
+                continue
+            filesize = f.get('filesize') or f.get('filesize_approx')
+            formats.append({
+                'format_id': f.get('format_id'),
+                'resolution': f.get('resolution') or f"{f.get('height', '?')}p",
+                'vcodec': f.get('vcodec', 'unknown'),
+                'acodec': f.get('acodec', 'unknown'),
+                'fps': f.get('fps'),
+                'filesize_approx': format_bytes(filesize) if filesize else 'N/A',
+                'ext': f.get('ext'),
             })
 
+        return jsonify({
+            'title': info.get('title'),
+            'duration': format_duration(info.get('duration')),
+            'uploader': info.get('uploader'),
+            'thumbnail': info.get('thumbnail'),
+            'url': url,
+            'formats': formats,
+        })
+
+    except DownloadError as e:
+        return jsonify({'error': f"YouTube is blocking this request: {str(e)}"}), 500
     except Exception as e:
-        error_msg = str(e)
-        # Retry with different client if first attempt fails
-        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
-            try:
-                retry_opts = get_ydl_opts({
-                    'extractor_args': {
-                        'youtube': {
-                            'player_client': ['android', 'android_embedded'],
-                            'player_skip': ['webpage', 'configs', 'js'],
-                        }
-                    }
-                })
-                with yt_dlp.YoutubeDL(retry_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    # ... same format processing as above ...
-                    formats = []
-                    for f in info.get('formats', []):
-                        if f.get('vcodec') == 'none':
-                            continue
-                        filesize = f.get('filesize') or f.get('filesize_approx')
-                        formats.append({
-                            'format_id': f.get('format_id'),
-                            'resolution': f.get('resolution') or f"{f.get('height', '?')}p",
-                            'vcodec': f.get('vcodec', 'unknown'),
-                            'acodec': f.get('acodec', 'unknown'),
-                            'fps': f.get('fps'),
-                            'filesize_approx': format_bytes(filesize) if filesize else 'N/A',
-                            'ext': f.get('ext'),
-                        })
-                    return jsonify({
-                        'title': info.get('title'),
-                        'duration': format_duration(info.get('duration')),
-                        'uploader': info.get('uploader'),
-                        'thumbnail': info.get('thumbnail'),
-                        'url': url,
-                        'formats': formats,
-                    })
-            except:
-                return jsonify({'error': 'YouTube is blocking requests from this server IP. Try again later or use a different hosting region.'}), 500
-        return jsonify({'error': error_msg}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
 def download_video():
@@ -148,20 +104,11 @@ def download_video():
     if not url or not format_id:
         return jsonify({'error': 'URL and format_id are required'}), 400
 
-    output_template = os.path.join(DOWNLOAD_DIR, '%(title)s_%(id)s.%(ext)s')
-
-    download_opts = get_ydl_opts({
-        'format': f'{format_id}+bestaudio[ext=m4a]/bestaudio/best',
-        'outtmpl': output_template,
-        'merge_output_format': 'mp4',
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
-    })
+    opts = build_opts(for_download=True)
+    opts['format'] = f'{format_id}+bestaudio[ext=m4a]/bestaudio/best'
 
     try:
-        with yt_dlp.YoutubeDL(download_opts) as ydl:
+        with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
@@ -174,6 +121,9 @@ def download_video():
                 files = glob.glob(os.path.join(DOWNLOAD_DIR, f"*{info.get('id', '')}*"))
                 if files:
                     filename = files[0]
+
+            if not os.path.exists(filename):
+                return jsonify({'error': 'Downloaded file not found'}), 500
 
             return send_file(
                 filename,
