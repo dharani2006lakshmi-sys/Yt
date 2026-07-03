@@ -254,7 +254,8 @@
         body: JSON.stringify({ videoId: value }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load video');
+      if (!res.ok) throw new Error(data.reason || data.error || 'Failed to load video');
+      if (!data.formats || data.formats.length === 0) throw new Error('No playable formats returned for this video.');
 
       currentVideoId = data.videoId;
       videoTitle.textContent = data.title || 'Untitled';
