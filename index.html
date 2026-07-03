@@ -222,6 +222,9 @@
   const videoAuthor = document.getElementById('videoAuthor');
   const qualityRow = document.getElementById('qualityRow');
 
+  // Point this at your Render backend URL
+  const API_BASE = 'https://yt-mvab.onrender.com';
+
   let currentVideoId = null;
 
   function showError(msg) {
@@ -245,7 +248,7 @@
     setLoading(true);
 
     try {
-      const res = await fetch('/api/formats', {
+      const res = await fetch(`${API_BASE}/api/formats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoId: value }),
@@ -290,7 +293,7 @@
 
   function playStream(itag) {
     if (!currentVideoId) return;
-    videoEl.src = `/api/stream?videoId=${encodeURIComponent(currentVideoId)}&itag=${itag}`;
+    videoEl.src = `${API_BASE}/api/stream?videoId=${encodeURIComponent(currentVideoId)}&itag=${itag}`;
     videoEl.play().catch(() => {});
   }
 
