@@ -26,7 +26,6 @@ async function getYT() {
       location: 'IN',
       cache: new UniversalCache(false),
       generate_session_locally: true,
-      client_type: 'ANDROID', // ANDROID client avoids most cloud-IP bot checks that WEB hits
     });
   }
   return ytClient;
@@ -51,7 +50,7 @@ app.post('/api/formats', async (req, res) => {
     if (!videoId) return res.status(400).json({ error: 'Valid videoId or URL required' });
 
     const client = await getYT();
-    const info = await client.getInfo(videoId);
+    const info = await client.getInfo(videoId, { client: 'ANDROID' });
 
     console.log('Basic info:', JSON.stringify(info.basic_info, null, 2).slice(0, 500));
     console.log('Playability status:', info.playability_status?.status, info.playability_status?.reason);
@@ -105,7 +104,7 @@ app.get('/api/stream', async (req, res) => {
     if (!videoId || !itag) return res.status(400).json({ error: 'videoId and itag required' });
 
     const client = await getYT();
-    const info = await client.getInfo(videoId);
+    const info = await client.getInfo(videoId, { client: 'ANDROID' });
 
     const allFormats = [
       ...(info.streaming_data?.formats || []),
