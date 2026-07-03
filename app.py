@@ -27,9 +27,8 @@ def build_opts(for_download=False):
         'http_headers': HEADERS,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'skip': ['webpage', 'configs'],
-                'innertube_key': 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
+                'player_client': ['web_embedded', 'tv'],
+                'player_skip': ['webpage', 'configs'],
             }
         },
         'extract_flat': False,
