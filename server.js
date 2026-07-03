@@ -26,9 +26,34 @@ async function getYT() {
       location: 'IN',
       cache: new UniversalCache(false),
       generate_session_locally: true,
+      cookie: process.env.YT_COOKIE || undefined, // authenticated session to bypass bot-check
     });
   }
   return ytClient;
+}
+
+async function getInfoWithFallback(client, videoId) {
+  const clientTypes = ['TV_EMBEDDED', 'IOS', 'ANDROID', 'WEB'];
+  let lastError = null;
+
+  for (const clientType of clientTypes) {
+    try {
+      const info = await client.getInfo(videoId, { client: clientType });
+      const allFormats = [
+        ...(info.streaming_data?.formats || []),
+        ...(info.streaming_data?.adaptive_formats || []),
+      ];
+      if (allFormats.length > 0) {
+        console.log(`Success with client: ${clientType}, formats: ${allFormats.length}`);
+        return { info, allFormats, clientType };
+      }
+      console.log(`Client ${clientType} returned 0 formats, trying next...`);
+    } catch (err) {
+      console.log(`Client ${clientType} failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('All client types failed to return playable formats');
 }
 
 function extractVideoId(input) {
@@ -50,16 +75,10 @@ app.post('/api/formats', async (req, res) => {
     if (!videoId) return res.status(400).json({ error: 'Valid videoId or URL required' });
 
     const client = await getYT();
-    const info = await client.getInfo(videoId, { client: 'ANDROID' });
+    const { info, allFormats, clientType } = await getInfoWithFallback(client, videoId);
 
     console.log('Basic info:', JSON.stringify(info.basic_info, null, 2).slice(0, 500));
-    console.log('Playability status:', info.playability_status?.status, info.playability_status?.reason);
-
-    const allFormats = [
-      ...(info.streaming_data?.formats || []),
-      ...(info.streaming_data?.adaptive_formats || []),
-    ];
-
+    console.log('Succeeded using client:', clientType);
     console.log('Total formats found:', allFormats.length);
 
     if (allFormats.length === 0) {
@@ -88,6 +107,7 @@ app.post('/api/formats', async (req, res) => {
       author: info.basic_info.author,
       duration: info.basic_info.duration,
       thumbnail: info.basic_info.thumbnail?.[0]?.url || null,
+      clientType,
       formats,
     });
   } catch (err) {
@@ -104,12 +124,22 @@ app.get('/api/stream', async (req, res) => {
     if (!videoId || !itag) return res.status(400).json({ error: 'videoId and itag required' });
 
     const client = await getYT();
-    const info = await client.getInfo(videoId, { client: 'ANDROID' });
+    const clientHint = req.query.clientType;
+    let info, allFormats;
 
-    const allFormats = [
-      ...(info.streaming_data?.formats || []),
-      ...(info.streaming_data?.adaptive_formats || []),
-    ];
+    if (clientHint) {
+      // Reuse the client type that worked during /api/formats — faster, no retries needed
+      info = await client.getInfo(videoId, { client: clientHint });
+      allFormats = [
+        ...(info.streaming_data?.formats || []),
+        ...(info.streaming_data?.adaptive_formats || []),
+      ];
+    } else {
+      const result = await getInfoWithFallback(client, videoId);
+      info = result.info;
+      allFormats = result.allFormats;
+    }
+
     const format = allFormats.find(f => f.itag === itag);
     if (!format) return res.status(404).json({ error: 'Format not found for this itag' });
 
